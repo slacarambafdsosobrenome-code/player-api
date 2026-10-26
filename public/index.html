@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pipoca-player · demo</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#0b0b0e;--card:#15151a;--line:rgba(255,255,255,.1);--txt:#f2f2f4;--mut:rgba(255,255,255,.58);--accent:#ff2a2a;--ok:#4ade80}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:15px/1.5 Roboto,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;min-height:100vh}
+a{color:inherit}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 16px 56px}
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+.logo{font-weight:900;letter-spacing:.3em;font-size:13px;color:var(--accent)}
+header h1{font-size:20px;font-weight:700}
+header p{color:var(--mut);font-size:14px}
+.grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:16px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px}
+.card h2{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-bottom:12px}
+.stage{aspect-ratio:16/9;background:#000;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+button,select,input{font:inherit;color:inherit}
+.b{background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:999px;padding:7px 14px;cursor:pointer;transition:background .15s}
+.b:hover{background:rgba(255,255,255,.16)}
+.b.p{background:var(--accent);border-color:transparent;font-weight:700}
+.b:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #fff;outline-offset:2px}
+label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
+input[type=text],input[type=url],select{width:100%;background:#0d0d11;border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+input[type=range]{accent-color:var(--accent);width:110px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.state{font:500 13px "Roboto Mono",monospace;color:var(--mut);margin-left:auto;font-variant-numeric:tabular-nums}
+#log{font:12px/1.55 "Roboto Mono",monospace;background:#0d0d11;border:1px solid var(--line);border-radius:10px;padding:10px;height:190px;overflow:auto;color:rgba(255,255,255,.75);white-space:pre-wrap;word-break:break-all}
+#log .e{color:var(--ok)} #log .x{color:#ff7b7b}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tabs .b[aria-selected=true]{background:#fff;color:#000;font-weight:700}
+pre{font:12.5px/1.55 "Roboto Mono",monospace;background:#0d0d11;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;white-space:pre;max-height:300px}
+.note{font-size:13px;color:var(--mut);margin-top:10px}
+.note code,.note b{color:var(--txt)}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.presets .b{font-size:13px;padding:5px 11px}
+.grow{display:flex;flex-direction:column;gap:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="logo">PIPOCA-PLAYER</span>
+    <h1>Demo e playground</h1>
+    <p>Cole a URL de um vídeo (.m3u8 ou arquivo direto), controle pelo SDK e copie o código.</p>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Player</h2>
+      <div class="stage" id="stage"></div>
+      <div class="bar">
+        <button class="b p" id="bPlay" type="button">▶ Play</button>
+        <button class="b" id="bPause" type="button">❚❚ Pause</button>
+        <button class="b" id="bBack" type="button">−10 s</button>
+        <button class="b" id="bFwd" type="button">+10 s</button>
+        <label style="margin:0;display:flex;align-items:center;gap:6px">Vol <input id="vol" type="range" min="0" max="1" step="0.05" value="1"></label>
+        <label style="margin:0;display:flex;align-items:center;gap:6px">Vel
+          <select id="rate" style="width:auto;padding:5px 8px"><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option></select>
+        </label>
+        <span class="state" id="state">—</span>
+      </div>
+      <p class="note">Atalhos dentro do player: <b>espaço</b> play/pause · <b>J/L</b> ±10 s · <b>F</b> tela cheia · <b>C</b> legendas · <b>T</b> modo cinema · <b>S</b> mapa de cenas.</p>
+    </section>
+
+    <div class="grow">
+      <section class="card">
+        <h2>Vídeo</h2>
+        <label for="src">URL do vídeo</label>
+        <input type="url" id="src" placeholder="https://…/video.m3u8 ou …/video.mp4" spellcheck="false" autocomplete="off">
+        <div class="row">
+          <div><label for="title">Título</label><input type="text" id="title" placeholder="Meu vídeo"></div>
+          <div><label for="type">Tipo</label>
+            <select id="type"><option value="">Detectar</option><option value="hls">HLS (.m3u8)</option><option value="mp4">Arquivo direto</option></select></div>
+        </div>
+        <label for="poster">Capa (opcional)</label>
+        <input type="url" id="poster" placeholder="https://…/capa.jpg" spellcheck="false" autocomplete="off">
+        <div class="bar" style="margin-top:12px">
+          <button class="b p" id="bLoad" type="button">Carregar</button>
+          <span class="note" style="margin:0">usa <code>player.load()</code> — sem recarregar o iframe</span>
+        </div>
+        <div class="presets" id="presets"></div>
+        <p class="note">Os exemplos são streams públicos de teste (Big Buck Bunny, © Blender Foundation, CC BY 3.0) e podem sair do ar. Use só vídeos que você tem direito de exibir.</p>
+      </section>
+
+      <section class="card">
+        <h2>Eventos</h2>
+        <div id="log" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="card" style="margin-top:16px">
+    <h2>Como usar no seu site</h2>
+    <div class="tabs" role="tablist">
+      <button class="b" role="tab" id="tSdk" aria-selected="true" type="button">SDK (recomendado)</button>
+      <button class="b" role="tab" id="tIframe" aria-selected="false" type="button">Só iframe</button>
+      <button class="b" id="bCopy" type="button" style="margin-left:auto">Copiar</button>
+    </div>
+    <pre id="code"></pre>
+  </section>
+</div>
+
+<script src="/sdk/pipoca-player.js"></script>
+<script>
+(function () {
+  var PRESETS = [
+    { label: 'HLS (Big Buck Bunny)', src: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', title: 'Big Buck Bunny (HLS)', type: 'hls' },
+    { label: 'MP4 (Big Buck Bunny)', src: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4', title: 'Big Buck Bunny (MP4)', type: 'mp4' }
+  ];
+  var $ = function (id) { return document.getElementById(id); };
+  var player = null, tab = 'sdk', logLines = 0;
+
+  function opts() {
+    var o = { src: $('src').value.trim() };
+    if ($('title').value.trim()) o.title = $('title').value.trim();
+    if ($('poster').value.trim()) o.poster = $('poster').value.trim();
+    if ($('type').value) o.type = $('type').value;
+    return o;
+  }
+  function log(text, cls) {
+    var box = $('log'), d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = text;
+    box.appendChild(d);
+    if (++logLines > 120) { box.removeChild(box.firstChild); logLines--; }
+    box.scrollTop = box.scrollHeight;
+  }
+  function fmt(t) { t = Math.max(0, Math.floor(t || 0)); var m = Math.floor(t / 60), s = t % 60; return m + ':' + (s < 10 ? '0' : '') + s; }
+
+  function start() {
+    var o = opts();
+    if (!o.src) { log('Cole a URL de um vídeo primeiro.', 'x'); return; }
+    if (player) { player.destroy(); }
+    $('stage').textContent = '';
+    player = new PipocaPlayer('#stage', o);
+    player.on('*', function (ev, d) {
+      if (ev === 'timeupdate') { $('state').textContent = fmt(d.currentTime) + ' / ' + fmt(d.duration); return; }
+      var brief = ev === 'ready' ? '' : (Object.keys(d || {}).length ? ' ' + JSON.stringify(d) : '');
+      log(ev + brief.slice(0, 160), ev === 'error' ? 'x' : 'e');
+    });
+    renderCode();
+  }
+
+  function renderCode() {
+    var o = opts(); if (!o.src) o.src = 'https://seu-cdn.com/video.m3u8';
+    var base = location.origin, code;
+    if (tab === 'sdk') {
+      code = '<script src="' + base + '/sdk/pipoca-player.js"><\/script>\n' +
+        '<div id="player" style="aspect-ratio:16/9"></div>\n\n<script>\n' +
+        '  const player = new PipocaPlayer(\'#player\', ' + JSON.stringify(o, null, 2).replace(/\n/g, '\n  ') + ');\n\n' +
+        '  player.on(\'ended\', () => console.log(\'acabou\'));\n' +
+        '  player.on(\'timeupdate\', ({ currentTime }) => console.log(currentTime));\n\n' +
+        '  await player.play();\n  await player.seek(90);\n  await player.setVolume(0.5);\n' +
+        '  await player.load({ src: \'https://…/outro.m3u8\', title: \'Outro vídeo\' });\n<\/script>';
+    } else {
+      code = '<iframe\n  src="' + PipocaPlayer.embedUrl(o, base) + '"\n' +
+        '  style="border:0;width:100%;aspect-ratio:16/9"\n' +
+        '  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"\n  allowfullscreen></iframe>';
+    }
+    $('code').textContent = code;
+  }
+
+  PRESETS.forEach(function (p) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'b'; b.textContent = p.label;
+    b.addEventListener('click', function () {
+      $('src').value = p.src; $('title').value = p.title; $('type').value = p.type; $('poster').value = '';
+      start();
+    });
+    $('presets').appendChild(b);
+  });
+
+  $('bLoad').addEventListener('click', function () {
+    var o = opts();
+    if (!o.src) { log('Cole a URL de um vídeo primeiro.', 'x'); return; }
+    if (!player) { start(); return; }
+    player.load(o).then(function () { renderCode(); }, function (e) { log('load: ' + e.message, 'x'); });
+  });
+  function cmd(btn, fn) { $(btn).addEventListener('click', function () { if (!player) return; fn().catch(function (e) { log(e.message, 'x'); }); }); }
+  cmd('bPlay', function () { return player.play(); });
+  cmd('bPause', function () { return player.pause(); });
+  cmd('bBack', function () { return player.seekBy(-10); });
+  cmd('bFwd', function () { return player.seekBy(10); });
+  $('vol').addEventListener('input', function () { if (player) player.setVolume(parseFloat(this.value)).catch(function () {}); });
+  $('rate').addEventListener('change', function () { if (player) player.setRate(parseFloat(this.value)).catch(function (e) { log(e.message, 'x'); }); });
+  ['src', 'title', 'poster', 'type'].forEach(function (id) { $(id).addEventListener('input', renderCode); });
+  function setTab(t) {
+    tab = t;
+    $('tSdk').setAttribute('aria-selected', t === 'sdk'); $('tIframe').setAttribute('aria-selected', t === 'iframe');
+    renderCode();
+  }
+  $('tSdk').addEventListener('click', function () { setTab('sdk'); });
+  $('tIframe').addEventListener('click', function () { setTab('iframe'); });
+  $('bCopy').addEventListener('click', function () {
+    var b = this, txt = $('code').textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { b.textContent = 'Copiado ✓'; setTimeout(function () { b.textContent = 'Copiar'; }, 1500); },
+      function () { b.textContent = 'Selecione e copie'; setTimeout(function () { b.textContent = 'Copiar'; }, 1800); });
+  });
+
+  // ?src=… na URL da demo já carrega o vídeo
+  var q = new URLSearchParams(location.search);
+  if (q.get('src')) { $('src').value = q.get('src'); $('title').value = q.get('title') || ''; $('poster').value = q.get('poster') || ''; start(); }
+  else { renderCode(); log('Escolha um exemplo ou cole uma URL e clique em Carregar.'); }
+})();
+</script>
+</body>
+</html>

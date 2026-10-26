@@ -1,0 +1,12 @@
+{
+  "name": "pipoca-player",
+  "version": "1.0.0",
+  "description": "Player de vídeo standalone (HLS + MP4) com /embed, SDK e API via postMessage — pronto para a Vercel.",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "test": "node --test"
+  }
+}
