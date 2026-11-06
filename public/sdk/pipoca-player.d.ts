@@ -17,7 +17,9 @@ export interface NextVideo {
 
 export interface PlayerOptions {
   /** URL do vídeo (.m3u8 ou arquivo direto). Obrigatório. */
-  src: string;
+  /** URL do vídeo, ou vários (array ou separados por vírgula): se um falhar, o player tenta o próximo.
+   *  Aceita MP4, HLS (.m3u8), Google Drive e OK.ru. */
+  src: string | string[];
   /** Onde o player está hospedado. Se o SDK veio do mesmo lugar, pode omitir. */
   baseUrl?: string;
   /** "hls" ou "mp4". Por padrão detecta pela extensão .m3u8. */
@@ -62,6 +64,8 @@ export interface PlayerState {
   cinema: boolean;
   title: string;
   src: string;
+  /** fonte em uso (quando há mais de um link) */
+  source: { index: number; total: number; label: string; mode: 'native' | 'hls' | 'frame' };
 }
 
 export interface PlayerEvents {
@@ -83,6 +87,8 @@ export interface PlayerEvents {
   cinema: { on: boolean };
   next: { url: string; title: string };
   error: { stage: string; code: string; message: string };
+  /** o player passou para outra fonte (falha do link anterior ou troca manual) */
+  sourcechange: { index: number; total: number; label: string; reason: string };
 }
 
 export default class PipocaPlayer {

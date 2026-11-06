@@ -12,7 +12,13 @@
     for(i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0;
     return (h>>>0).toString(36);
   }
-  if(!C.id) C.id=idFromUrl(C.url);
+  if(!C.links || !C.links.length) C.links = C.url ? [C.url] : [];
+  if(!C.id) C.id=idFromUrl(C.links[0]||C.url);
+  // lê os links e monta a fila de tentativas (mesmo arquivo do servidor: /player/sources.js)
+  var PS = window.PipocaSources || {
+    parseLinks:function(t){ return String(t||'').split(/[\s,;|]+(?=https?:\/\/)/i).filter(function(u){ return /^https?:\/\//i.test(u); }); },
+    buildAttempts:function(l){ return l.map(function(u,i){ return {mode:/\.m3u8?(\?|#|$)/i.test(u)?'hls':'native',kind:'file',url:u,label:'Link '+(i+1),i:i,n:l.length}; }); }
+  };
   function $(id){ return document.getElementById(id); }
   var app=$('app'), rig=$('rig'), video=$('v'), controls=$('controls'), prog=$('prog'), fill=$('fill'), buf=$('buf'),
       hoverEl=$('hover'), thumbEl=$('thumb'), tip=$('tip'), curEl=$('cur'), remEl=$('rem'), msgEl=$('msg'),
@@ -68,7 +74,8 @@
       currentTime:video.currentTime||0, duration:isFinite(d)?d:0, paused:video.paused, ended:video.ended,
       volume:video.volume, muted:video.muted, playbackRate:video.playbackRate, buffering:!!S.buffering,
       phase:S.phase, started:!!S.started, fullscreen:!!(S.fs||S.pfs), pip:!!S.pip, cinema:!!modes.cinema,
-      title:C.title||'', src:C.url||''
+      title:C.title||'', src:C.url||'',
+      source:{index:ai,total:AT.length,label:AT[ai]?AT[ai].label:'',mode:AT[ai]?AT[ai].mode:''}
     };
   }
   function setMediaMeta(){
@@ -105,10 +112,12 @@
   // phase: resume | boot | playing | paused | ended | error
   var S={phase:'boot',started:false,buffering:false,ui:true,panel:'',menu:false,napReady:false,dragging:false,
          pip:false,fs:false,pfs:false,rot:false,flip:false,manualRot:false,locked:false,lockPending:false,
-         waitGesture:false,nextClosed:false,soft:false,tele:false};
+         waitGesture:false,nextClosed:false,soft:false,tele:false,frame:false};
   var modes={cinema:false,night:false,read:false};
   var fit='contain';
   var hideT=0, napT=0, loadT=0, stallT=0, tStart=Date.now(), stalls=0, engName='';
+  var AT=[], ai=0, tried=[], reqStart=0, curAuto=true, lastFail='';   // fila de links/tentativas
+  var frameEl=$('frame'), srcbar=$('srcbar'), sbTxt=$('sbTxt');
   var hls=null, netTries=0, mediaTries=0, panelsClosedAt=0, savedPos=0, pendingPlay=false, errAt=0, swapUntil=0, lastTU=0;
 
   function setCls(n,on){ on=!!on; if(app.classList.contains(n)!==on) app.classList.toggle(n,on); }
@@ -127,6 +136,11 @@
     setCls('is-rot', S.rot);
     setCls('is-flip', S.rot && S.flip);
     setCls('is-soft', S.soft);
+    setCls('is-frame', S.frame);
+    if(S.frame && AT[ai]){
+      var sbt='Fonte '+(ai+1)+' de '+AT.length;
+      if(sbTxt.textContent!==sbt){ sbTxt.textContent=sbt; srcbar.title=AT[ai].label; }
+    }
     setCls('is-next', ph==='ended' && !S.nextClosed);
     setCls('m-cinema', modes.cinema); setCls('m-night', modes.night); setCls('m-read', modes.read);
     var main=$('mPlay');
@@ -222,14 +236,16 @@
 
   // ---------- reproduzir / pausar ----------
   function tryPlay(){
-    var p; pendingPlay=true;
+    var p;
+    if(S.frame) return;   // fonte em iframe: quem toca é o player de dentro dele
+    pendingPlay=true;
     try{ p=video.play(); }catch(e){ pendingPlay=false; }
     if(p && p.then){ p.then(function(){ pendingPlay=false; }, onPlayReject); } else pendingPlay=false;
   }
   function onPlayReject(err){
     pendingPlay=false;
     if(!err || err.name==='AbortError' || S.phase==='error') return;
-    if(err.name==='NotSupportedError'){ showError('decodificacao','NotSupported'); return; }
+    if(err.name==='NotSupportedError'){ failSource('decodificacao','NotSupported'); return; }
     // autoplay bloqueado: espera o toque do espectador
     S.waitGesture=true; S.buffering=false;
     if(S.phase==='boot') S.phase='paused';
@@ -278,14 +294,15 @@
   function showError(stage,code){
     if(S.phase==='error') return;
     clearTimeout(loadT); clearTimeout(stallT); clearTimeout(napT);
-    errAt=video.currentTime||0;
+    errAt=S.frame?reqStart:(video.currentTime||0);
     savePos();
     try{ video.pause(); }catch(e){}
+    hideFrame();
     wakeOff();
     S.panel=''; S.menu=false; S.buffering=false; S.napReady=false;
     S.phase='error';
     var st=STAGES[stage]||STAGES.carregamento;
-    $('errMsg').textContent=st[1]+' Tente novamente em instantes.';
+    $('errMsg').textContent=st[1]+(AT.length>1?' Testamos '+AT.length+' fontes e nenhuma funcionou.':' Tente novamente em instantes.');
     $('errStage').textContent='Etapa: '+st[0]+(code?' · '+String(code).slice(0,40):'');
     track('error',{stage:stage,code:String(code||'').slice(0,40)});
     emit('error',{stage:stage,code:String(code||'').slice(0,40),message:st[1]});
@@ -300,12 +317,13 @@
     netTries=0; mediaTries=0; stalls=0;
     try{ video.pause(); }catch(e){}
     try{ video.removeAttribute('src'); video.load(); }catch(e){}
+    hideFrame();
   }
   function retry(){
     var at=errAt>5?errAt:0;
     teardown();
     S.panel=''; S.menu=false;
-    startSource(at,true);
+    startSource(at,true);   // recomeça pela primeira fonte
   }
   $('btnRetry').addEventListener('click',retry);
 
@@ -358,34 +376,108 @@
     hls.on(Hls.Events.FRAG_LOADED,function(){ netTries=0; });
     hls.on(Hls.Events.ERROR,function(_,d){
       if(!d || !d.fatal) return;
+      var h=hls;
+      // lista (.m3u8) que não abre — 404, bloqueio de CORS, não é HLS: tentar de novo não resolve, passa pra próxima fonte
+      if(/^manifest/i.test(String(d.details||''))){ failSource('carregamento',d.details); return; }
       if(d.type===Hls.ErrorTypes.NETWORK_ERROR){
-        if(netTries<3){ netTries++; setTimeout(function(){ try{ hls.startLoad(); }catch(e){} },800*netTries); return; }
-        showError('carregamento',d.details); return;
+        if(netTries<3){ netTries++; setTimeout(function(){ try{ if(hls===h) h.startLoad(); }catch(e){} },800*netTries); return; }
+        failSource('carregamento',d.details); return;
       }
       if(d.type===Hls.ErrorTypes.MEDIA_ERROR){
         if(mediaTries<2){ mediaTries++; try{ if(mediaTries===2) hls.swapAudioCodec(); hls.recoverMediaError(); }catch(e){} return; }
-        showError('decodificacao',d.details); return;
+        failSource('decodificacao',d.details); return;
       }
-      showError('carregamento',d.details||d.type);
+      failSource('carregamento',d.details||d.type);
     });
     hls.loadSource(C.url);
     hls.attachMedia(video);
   }
-  function startSource(startAt,autoplay){
+  // ---------- fila de fontes: tenta os links um por um ----------
+  // Cada "tentativa" (AT[i]) é { mode:'native'|'hls'|'frame', url, label }. Se uma falha (erro, timeout, travou),
+  // passa pra próxima sozinho — retomando do mesmo minuto. Só mostra erro quando todas falharam.
+  function buildAttemptList(){
+    AT=PS.buildAttempts(C.links||[],{
+      secure:location.protocol==='https:',
+      type:C.type||'',
+      nativeHls:!!(isApple && CAP.nativeHls),
+      iframeLast:!!C.iframeLast
+    });
+    ai=0; tried=[];
+  }
+  function hideFrame(){
+    S.frame=false;
+    try{ frameEl.onload=null; frameEl.src='about:blank'; }catch(e){}
+  }
+  function attachFrame(a){
+    engName='frame';
+    try{ video.removeAttribute('src'); video.load(); }catch(e){}
+    frameEl.onload=function(){
+      clearTimeout(loadT);
+      if(S.frame && S.phase==='boot'){ S.phase='paused'; S.buffering=false; render(); }
+    };
+    frameEl.src=a.url;
+  }
+  function nextAttempt(){
+    var k, j;
+    for(k=1;k<=AT.length;k++){ j=(ai+k)%AT.length; if(!tried[j]) return j; }
+    return -1;
+  }
+  function useAttempt(i,startAt,autoplay){
+    var a=AT[i];
+    ai=i; tried[i]=true; reqStart=startAt||0; curAuto=autoplay;
+    C.url=a.url; C.isHls=(a.mode==='hls');
+    S.frame=(a.mode==='frame');
     S.phase='boot'; S.buffering=true; S.started=false; render();
     clearTimeout(loadT);
-    loadT=setTimeout(function(){ showError('carregamento','timeout'); },45000);
+    // a última fonte tem mais paciência; as outras passam adiante mais rápido
+    loadT=setTimeout(function(){ failSource('carregamento','timeout'); }, nextAttempt()<0 ? Math.max(45000,C.srcTimeout||0) : (C.srcTimeout||25000));
     tStart=Date.now();
+    if(a.mode==='frame'){ attachFrame(a); return; }
     var eng=pickEngine();
     if(eng==='native') attachNative(startAt,autoplay);
     else if(eng==='hlsjs'){
       loadHls(function(ok){
-        if(!ok){ if(CAP.nativeHls) attachNative(startAt,autoplay); else showError('biblioteca','cdn'); return; }
-        if(!window.Hls.isSupported()){ if(CAP.nativeHls) attachNative(startAt,autoplay); else showError('decodificacao','mse'); return; }
+        if(AT[ai]!==a || S.phase==='error') return;   // já passou pra outra fonte enquanto o hls.js carregava
+        if(!ok){ if(CAP.nativeHls) attachNative(startAt,autoplay); else failSource('biblioteca','cdn'); return; }
+        if(!window.Hls.isSupported()){ if(CAP.nativeHls) attachNative(startAt,autoplay); else failSource('decodificacao','mse'); return; }
         attachHls(startAt,autoplay);
       });
-    } else showError('decodificacao','sem-suporte');
+    } else failSource('decodificacao','sem-suporte');
   }
+  // fonte atual falhou: tenta a próxima; se não sobrou nenhuma, aí sim mostra o erro
+  function failSource(stage,code){
+    if(S.phase==='error') return;
+    var was=S.started && !S.frame, at=video.currentTime||0;
+    clearTimeout(loadT); clearTimeout(stallT);
+    lastFail=stage+(code?':'+String(code).slice(0,30):'');
+    var n=nextAttempt();
+    if(n<0){ showError(stage,code); return; }
+    if(was) savePos();
+    track('failover',{stage:stage,code:String(code||'').slice(0,40)});
+    teardown();
+    toast('Esse link falhou. Tentando a fonte '+(n+1)+' de '+AT.length+'…');
+    emit('sourcechange',{index:n,total:AT.length,label:AT[n].label,reason:lastFail});
+    useAttempt(n, was&&at>5?at:reqStart, curAuto);
+  }
+  // troca manual (menu ou barrinha): recomeça a contagem de "já tentadas"
+  function switchTo(i){
+    if(!AT.length || i===ai || !AT[i]) return;
+    var at=(S.started && !S.frame)?(video.currentTime||0):reqStart;
+    if(S.started && !S.frame) savePos();
+    teardown();
+    tried=[];
+    S.menu=false; S.panel='';
+    emit('sourcechange',{index:i,total:AT.length,label:AT[i].label,reason:'manual'});
+    useAttempt(i, at>5?at:0, true);
+    toast('Fonte '+(i+1)+' de '+AT.length+' · '+AT[i].label);
+  }
+  function startSource(startAt,autoplay){
+    buildAttemptList();
+    if(!AT.length){ S.phase='boot'; showError('fonte','sem-links'); return; }
+    useAttempt(0,startAt,autoplay);
+  }
+  $('sbNext').addEventListener('click',function(){ switchTo((ai+1)%AT.length); });
+  $('sbPrev').addEventListener('click',function(){ switchTo((ai-1+AT.length)%AT.length); });
 
   // ---------- eventos do vídeo ----------
   var castWatching=false;
@@ -432,7 +524,7 @@
     S.buffering=true; stalls++; setMsg(1); render();
     emit('waiting');
     clearTimeout(stallT);
-    stallT=setTimeout(function(){ if(S.buffering) showError('carregamento','travado'); },45000);
+    stallT=setTimeout(function(){ if(S.buffering) failSource('carregamento','travado'); },45000);
   });
   video.addEventListener('seeking',function(){ if(S.started && video.readyState<3){ S.buffering=true; render(); } emit('seeking',{currentTime:video.currentTime||0}); });
   video.addEventListener('seeked',function(){ if(video.readyState>=3){ S.buffering=false; clearTimeout(stallT); render(); } emit('seeked',{currentTime:video.currentTime||0}); });
@@ -445,8 +537,8 @@
   video.addEventListener('error',function(){
     if(hls || S.phase==='error') return;
     var c=video.error?video.error.code:0;
-    if(c===1) return;
-    showError(c===2?'carregamento':'decodificacao','E'+c);
+    if(c===1 || S.frame) return;
+    failSource(c===2?'carregamento':'decodificacao','E'+c);
   });
   video.addEventListener('ratechange',function(){ updEnd(); emit('ratechange',{rate:video.playbackRate}); });
 
@@ -719,6 +811,19 @@
         b.setAttribute('aria-checked',s.on?'true':'false'); b.setAttribute('data-k','s'+i);
         var t=el('span'); t.appendChild(document.createTextNode(s.label)); b.appendChild(t); b.appendChild(svgUse('check'));
         b.addEventListener('click',function(){ s.set(); toast('Legenda: '+s.label); buildMenu(); });
+        menu.appendChild(b);
+      });
+    }
+    if(AT.length>1){
+      menu.appendChild(el('h3',null,'Fonte do vídeo'));
+      AT.forEach(function(a,i){
+        var b=el('button','mi'); b.type='button';
+        b.setAttribute('role','menuitemradio'); b.setAttribute('aria-checked',i===ai?'true':'false'); b.setAttribute('data-k','src'+i);
+        var t=el('span'); t.appendChild(document.createTextNode((i+1)+' · '+a.label));
+        var st=i===ai?'em uso':(tried[i]?'não funcionou':'');
+        if(st) t.appendChild(el('small',null,st));
+        b.appendChild(t); b.appendChild(svgUse('check'));
+        b.addEventListener('click',function(){ switchTo(i); });
         menu.appendChild(b);
       });
     }
@@ -1147,7 +1252,7 @@
     if(e.ctrlKey||e.metaKey||e.altKey) return;
     var k=e.key, tag=e.target && e.target.tagName;
     if(k==='Escape'){ if(closePanels()){ e.preventDefault(); } return; }
-    if(S.phase==='resume'||S.phase==='error') return;
+    if(S.phase==='resume'||S.phase==='error'||S.frame) return;
     if(tag==='INPUT' && (k==='ArrowUp'||k==='ArrowDown'||k==='ArrowLeft'||k==='ArrowRight'||k==='Home'||k==='End')) return;
     if((tag==='BUTTON'||tag==='A') && (k===' '||k==='Enter')) return;
     if(S.menu && (k==='ArrowUp'||k==='ArrowDown')){
@@ -1218,12 +1323,14 @@
   // ---------- trocar de vídeo sem recarregar a página (comando "load") ----------
   function normList(v,max){ return (Array.isArray(v)?v:[]).slice(0,max); }
   function loadNew(a){
-    var src=a && a.src;
-    if(!safeUrl(src)) throw new Error('src inválido: use uma URL http:// ou https://');
+    var links=PS.parseLinks(a && a.src, 12);
+    if(!links.length) throw new Error('src inválido: use uma URL http:// ou https://');
+    var src=links[0];
     savePos();
     teardown();
     S.panel=''; S.menu=false; S.nextClosed=true; S.started=false; S.waitGesture=false; S.buffering=true;
-    C.url=src;
+    C.links=links; C.url=src;
+    C.type=(a.type==='hls')?'hls':((a.type==='mp4'||a.type==='file')?'mp4':'');
     C.isHls=(a.type==='hls') || (a.type!=='mp4' && /\.m3u8(\?|#|$)/i.test(src));
     C.id=a.id?String(a.id).slice(0,120):idFromUrl(src);
     KPOS='pf:pos:'+C.id;
@@ -1264,8 +1371,10 @@
     });
   }
   function num(v,name){ var n=+v; if(v===undefined || v===null || v==='' || !isFinite(n)) throw new Error(name+' inválido'); return n; }
+  var NEEDS_VIDEO={play:1,pause:1,toggle:1,seek:1,seekBy:1,setVolume:1,mute:1,unmute:1,setRate:1,captions:1};
   function runCommand(cmd,a){
     var n;
+    if(S.frame && NEEDS_VIDEO[cmd]) throw new Error('esta fonte (Google Drive / OK.ru) usa o player do próprio site: o comando "'+cmd+'" não está disponível');
     switch(cmd){
       case 'play': return cmdPlay();
       case 'pause': video.pause(); return snap();

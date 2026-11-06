@@ -36,7 +36,7 @@
       if (v === undefined || v === null || v === '') return;
       q.push(encodeURIComponent(k) + '=' + encodeURIComponent(String(v)));
     }
-    PARAM_MAP.forEach(function (k) { add(k, o[k]); });
+    PARAM_MAP.forEach(function (k) { add(k, k === 'src' && Array.isArray(o.src) ? o.src.join('\n') : o[k]); });
     FLAGS.forEach(function (k) { if (o[k] !== undefined) add(k, o[k] ? '1' : '0'); });
     if (o.tags) add('tags', [].concat(o.tags).join(','));
     if (o.subs && o.subs.length) add('subs', JSON.stringify(o.subs));

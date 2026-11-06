@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 // Servidor local (sem precisar de login na Vercel):  npm run dev   →  http://localhost:3000
-// Faz o mesmo que a Vercel faz com este projeto: serve /public e roda api/embed.js em /embed.
+// Faz o mesmo que a Vercel faz com este projeto: serve /public, roda api/embed.js em /embed
+// e api/watch.js em /filme/{linha} e /serie/{aba}/{linha}.
 // (Alternativa oficial: `npx vercel dev`.)
 const http = require('http');
 const fs = require('fs');
@@ -10,6 +11,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const PUBLIC = path.join(ROOT, 'public');
 const embed = require('../api/embed.js');
+const watch = require('../api/watch.js');
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -32,8 +34,11 @@ function serveStatic(req, res, pathname) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  if (url.pathname === '/embed' || url.pathname === '/api/embed') {
-    Promise.resolve(embed(req, res)).catch((e) => {
+  // mesmas rotas do vercel.json
+  const isEmbed = url.pathname === '/embed' || url.pathname === '/api/embed';
+  const isWatch = /^\/(filme\/[^/]+|serie\/[^/]+\/[^/]+)\/?$/.test(url.pathname) || url.pathname === '/api/watch';
+  if (isEmbed || isWatch) {
+    Promise.resolve((isEmbed ? embed : watch)(req, res)).catch((e) => {
       console.error(e);
       res.statusCode = 500;
       res.end('erro interno');
@@ -49,5 +54,5 @@ const server = http.createServer((req, res) => {
 });
 
 const port = Number(process.env.PORT) || 3000;
-server.listen(port, () => console.log(`pipoca-player em http://localhost:${port}  (demo)  ·  /embed?src=URL_DO_VIDEO`));
+server.listen(port, () => console.log(`pipoca-player em http://localhost:${port}  (demo)  ·  /embed?src=URL  ·  /filme/{linha}  ·  /serie/{aba}/{linha}`));
 module.exports = server;

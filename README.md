@@ -1,9 +1,9 @@
 # pipoca-player
 
-Player de vídeo standalone (HLS + MP4) com a interface do PipocaFlix, pronto pra rodar sozinho na **Vercel**.
-Você passa a URL de um vídeo e ele toca. Dá pra usar de dois jeitos:
+Player de vídeo com a interface do PipocaFlix, pronto pra rodar sozinho na **Vercel**. Toca **MP4, HLS (`.m3u8`/`.m3u`), Google Drive e OK.ru**, e se um link falhar ele **pula sozinho pro próximo**. Dá pra usar de três jeitos:
 
-- **`/embed?src=…`** dentro de um `<iframe>` (funciona em qualquer site);
+- **`/filme/{linha}`** e **`/serie/{aba}/{linha}`**: os links vêm das suas planilhas do Google (veja [Planilhas](#planilhas-filmes-e-séries));
+- **`/embed?src=…`** dentro de um `<iframe>` (funciona em qualquer site; `src` aceita vários links);
 - **SDK em JavaScript** (`PipocaPlayer`) pra controlar o player por código: play, pause, seek, trocar de vídeo, ouvir eventos.
 
 Ele **não busca, não converte e não faz proxy de vídeo**: só toca a URL que você entregar. Use com conteúdo que você tem direito de exibir (arquivos seus, conteúdo licenciado, domínio público…).
@@ -29,9 +29,42 @@ Depois do deploy você tem, por exemplo, `https://meu-player.vercel.app`:
 | Endereço | O que é |
 |---|---|
 | `/` | página de demonstração (playground + código pra copiar) |
-| `/embed?src=URL` | o player, pra usar em `<iframe>` |
+| `/filme/2555` | toca a linha **2555** da planilha de filmes (links da coluna **P**) |
+| `/serie/3/150` | toca a linha **150** da aba **3** (`episodios3`) da planilha de séries (links da coluna **E**) |
+| `/embed?src=URL` | o player, pra usar em `<iframe>` (`src` pode ter vários links) |
 | `/sdk/pipoca-player.js` | SDK de controle |
 | `/sdk/pipoca-player.d.ts` | tipos TypeScript |
+
+---
+
+## Planilhas (filmes e séries)
+
+As planilhas precisam estar com **Compartilhar → Qualquer pessoa com o link → Leitor** (o servidor baixa a aba em CSV, sem login). Se estiver privada, o player mostra uma mensagem explicando.
+
+| Rota | Planilha | Onde ficam os links | O número da rota é |
+|---|---|---|---|
+| `/filme/{linha}` | aba `SITE, DADOS!` | coluna **P** (*Link Player 2*), da linha 2 pra baixo | o número da linha: `P2555` → `/filme/2555` (também aceita `/filme/P2555`) |
+| `/serie/{aba}/{linha}` | `Episodios Divididos` | coluna **E**, da linha 2 pra baixo, em cada aba | `{aba}` de 1 a 17 (`episodios1` … `episodios17`) e `{linha}` = número da linha |
+
+- **Vários links na mesma célula:** separe por vírgula (ou espaço, ou Alt+Enter). O player tenta **na ordem** e passa pro próximo quando um falha (erro, não respondeu em 25 s, ou travou de vez — nesse caso retoma do mesmo minuto).
+- **Título, capa, sinopse, ano e categorias** da ficha vêm da mesma linha (filmes: colunas A, C, D, F, E, G e M). Nas séries o título é `Nome · T1 E3` (colunas A, C, D) e o botão **"próximo episódio"** aparece sozinho se a linha de baixo for da mesma série e tiver link.
+- **Edição na planilha vale em até ~2 minutos** (cache do servidor de 2 min + 1 min no CDN).
+- **O número da aba** é a posição na lista `SERIES_GIDS` (em `lib/config.js`): 1 = primeiro `gid`, 17 = último. Se uma aba da sua planilha estiver numa ordem diferente, é só reordenar essa lista (ou definir a variável `SERIES_GIDS`).
+- Quer outra coluna de links? `FILMES_LINK_COL=Q`, `SERIES_LINK_COL=F`… (veja as variáveis abaixo).
+
+### Que tipo de link funciona
+
+| Link na célula | Como toca | Observações |
+|---|---|---|
+| `https://…/filme.mp4` (e `.webm`, `.mov`…) | `<video>` direto, com todos os controles | o servidor precisa aceitar *Range* pra poder pular; **`http://` vira `https://` automaticamente** (senão o navegador bloqueia) |
+| `https://…/lista.m3u8` | hls.js (Safari/iPhone: HLS nativo) | o servidor precisa liberar **CORS** (`Access-Control-Allow-Origin`). `.m3u` é tratado como HLS; uma *playlist de canais IPTV* não é vídeo e vai falhar |
+| link sem extensão (ex.: `https://…workers.dev/2`) | tenta como arquivo; se falhar, tenta como HLS | |
+| `https://drive.google.com/file/d/ID/view` (e `open?id=`, `uc?id=`) | 1º tenta baixar direto (controles do player); 2º abre o **player do próprio Drive** | o arquivo precisa estar com *"Qualquer pessoa com o link"*. Arquivo grande/muito acessado costuma cair no player do Drive |
+| `https://ok.ru/video/ID` | player do OK.ru dentro de um `<iframe>` | o vídeo precisa ser público |
+
+**Drive e OK.ru em iframe:** quando o vídeo toca dentro do player do Drive/OK.ru, quem controla é o player **deles** (os controles do PipocaFlix somem) e o navegador **não avisa se o vídeo deu erro** lá dentro. Por isso aparece uma barrinha **‹ Fonte 2 de 3 ›** no topo pra trocar de link na mão, e o plano B do Drive (o iframe) fica sempre por último na fila. Se preferir que *todo* iframe fique por último, defina `IFRAME_LAST=1`.
+
+**Trocar de fonte na mão:** menu ⚙ → *Fonte do vídeo* (aparece quando há mais de um link).
 
 ---
 
@@ -170,7 +203,12 @@ Vercel → Project → Settings → Environment Variables. Veja `.env.example`.
 | `ALLOWED_SRC_HOSTS` | vazio (aceita tudo) | Só toca vídeos desses hosts: `meucdn.com, *.videos.com` |
 | `FRAME_ANCESTORS` | `*` | Quem pode embutir o player: `https://meusite.com https://*.meusite.com` |
 | `HLS_ENGINE` | `auto` | `auto`, `native`, `hlsjs` |
-| `REFERRER_POLICY` | `strict-origin-when-cross-origin` | Referrer enviado ao servidor do vídeo |
+| `REFERRER_POLICY` | `no-referrer` | Referrer enviado ao servidor do vídeo (sem referrer é o que mais servidores aceitam) |
+| `SRC_TIMEOUT` | `25` | Segundos esperando cada link antes de passar pro próximo (5 a 120; a última fonte espera ≥ 45) |
+| `IFRAME_LAST` | `0` | `1` = links do Drive/OK.ru (iframe) sempre por último |
+| `SHEET_TTL` | `120` | Segundos que a planilha fica em cache no servidor |
+| `FILMES_SHEET_ID`, `FILMES_GID`, `FILMES_LINK_COL` | sua planilha, `300449936`, `P` | Planilha/aba de filmes e coluna dos links |
+| `SERIES_SHEET_ID`, `SERIES_GIDS`, `SERIES_LINK_COL` | sua planilha, os 17 gids, `E` | Planilha de séries, lista de `gid` em ordem (separados por vírgula) e coluna dos links |
 | `TELEMETRY` | `0` | `1` liga a opção "Dados técnicos anônimos" no menu (só vai pro log da Vercel) |
 
 **Recomendado em produção:** defina `ALLOWED_SRC_HOSTS` (ninguém usa o seu player com vídeos de terceiros) e `FRAME_ANCESTORS` (ninguém embute o seu player em outros sites). Alterou variável? Faça um novo deploy.
@@ -179,7 +217,7 @@ Vercel → Project → Settings → Environment Variables. Veja `.env.example`.
 
 ## Requisitos do vídeo (onde as coisas costumam quebrar)
 
-- **HTTPS:** se o player está em `https://`, o vídeo também precisa estar (senão o navegador bloqueia como *mixed content*).
+- **HTTPS:** se o player está em `https://`, o vídeo também precisa estar (senão o navegador bloqueia como *mixed content*). O player troca `http://` por `https://` sozinho, mas se o servidor do vídeo **só** funciona em `http://` (ou tem certificado inválido), não toca: ponha na célula um link `https://` (ex.: o do seu Worker) como alternativa.
 - **CORS no HLS:** o servidor/CDN do `.m3u8` e dos segmentos precisa enviar `Access-Control-Allow-Origin` (o hls.js lê os arquivos por XHR). MP4 direto não precisa.
 - **CORS nas legendas:** arquivos `.vtt` de outro domínio precisam de `Access-Control-Allow-Origin`.
 - **Range requests:** MP4 precisa de `Accept-Ranges: bytes` pra poder pular pra qualquer ponto.
@@ -191,7 +229,7 @@ Vercel → Project → Settings → Environment Variables. Veja `.env.example`.
 ## Desenvolvimento local
 
 ```bash
-npm run dev      # http://localhost:3000  (demo em /, player em /embed) — sem precisar de login na Vercel
+npm run dev      # http://localhost:3000  (demo em /, /embed, /filme/2, /serie/1/2) — sem precisar de login na Vercel
 npm test         # testes do servidor e do SDK (node:test, sem dependências)
 ```
 
@@ -200,8 +238,11 @@ npm test         # testes do servidor e do SDK (node:test, sem dependências)
 ### Estrutura
 
 ```
+api/watch.js              GET /filme/{linha} e /serie/{aba}/{linha} (links vêm da planilha)
 api/embed.js              GET /embed (página do player) · POST /embed (telemetria opcional)
+lib/sheets.js             lê as planilhas do Google (CSV), cache, número da linha, título/capa/sinopse
 lib/                      config (env), validação de parâmetros, HTML do player, ícones
+public/player/sources.js  lê a célula de links, descobre o tipo (mp4/hls/drive/ok.ru) e monta a fila de tentativas (roda no servidor E no navegador)
 public/player/player.js   o player (roda no navegador) — HLS, controles, painéis, API postMessage
 public/player/player.css  visual do player
 public/vendor/hls.min.js  hls.js 1.5.8 (Apache-2.0), servido pelo próprio projeto; CDNs só como reserva
@@ -214,6 +255,12 @@ test/                     testes
 Editou `public/player/player.js` ou `.css`? Não precisa fazer nada: a versão do arquivo na página é um hash do conteúdo, então o cache dos navegadores se renova sozinho.
 
 ---
+
+## Versão 2.0 — o que mudou
+
+- **Novo:** rotas `/filme/{linha}` e `/serie/{aba}/{linha}` lendo as planilhas; vários links por célula com **troca automática** (erro, timeout, travamento — retomando do mesmo ponto); suporte a **Google Drive** e **OK.ru**; HLS com erro de lista (404/CORS) troca na hora em vez de tentar 5 s; menu *Fonte do vídeo*; `src` do `/embed` e do SDK aceita vários links; evento `sourcechange`.
+- **Mudou:** `Referrer-Policy` padrão agora é `no-referrer`; `http://` é promovido a `https://` na página https.
+- **Igual:** o visual e todos os controles do player.
 
 ## O que mudou em relação ao player dentro do projeto original
 

@@ -67,7 +67,7 @@ test('título/descrição maliciosos não escapam do HTML nem do JSON', async ()
   const r = await call('/embed?src=https://a.com/x.mp4&title=' + encodeURIComponent(evil) + '&desc=' + encodeURIComponent(evil));
   assert.equal(r.statusCode, 200);
   assert.ok(!r.body.includes('<img src=x'), 'tag injetada no HTML');
-  assert.equal((r.body.match(/<\/script>/g) || []).length, 2, 'só os 2 </script> legítimos (config + player.js)');
+  assert.equal((r.body.match(/<\/script>/g) || []).length, 3, 'só os 3 </script> legítimos (config + sources.js + player.js)');
   assert.equal(configOf(r.body).title, evil, 'o texto original chega intacto ao JS');
 });
 
@@ -198,4 +198,20 @@ test('SDK: embedUrl monta a URL certa', () => {
   assert.equal(u.searchParams.get('next_title'), 'Ep 2');
   assert.throws(() => PipocaPlayer.embedUrl({}, 'https://p.com'), /src/);
   assert.throws(() => PipocaPlayer.embedUrl({ src: 'https://a.com/x.mp4' }), /baseUrl/);
+});
+
+test('src com vários links: todos vão pro player, na ordem; inválidos e perigosos saem', async () => {
+  const src = 'https://a.test/1.mp4, javascript:alert(1), https://b.test/2.m3u8\nhttps://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view';
+  const r = await call('/embed?src=' + encodeURIComponent(src));
+  assert.equal(r.statusCode, 200);
+  const c = configOf(r.body);
+  assert.deepEqual(c.links, ['https://a.test/1.mp4', 'https://b.test/2.m3u8', 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view']);
+  assert.equal(c.url, 'https://a.test/1.mp4');
+  assert.match(r.body, /<script src="\/player\/sources\.js\?v=/);
+});
+
+test('SDK: src em array vira lista na URL do embed', () => {
+  const SDK = require('../public/sdk/pipoca-player.js');
+  const u = new URL(SDK.embedUrl({ src: ['https://a.test/1.mp4', 'https://b.test/2.mp4'] }, 'https://p.test'));
+  assert.equal(u.searchParams.get('src'), 'https://a.test/1.mp4\nhttps://b.test/2.mp4');
 });

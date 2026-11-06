@@ -320,6 +320,23 @@ kbd{display:inline-block;min-width:1.8em;padding:1px 7px;margin:0 2px;border-rad
 #app[data-wide="1"] .drawer{width:min(500px,26%)}
 #app[data-wide="1"][data-lay="phone-l"] .controls{width:min(900px,calc(100% - 2 * var(--bm)))}
 
+/* ---------- fonte externa (Google Drive / OK.ru num <iframe>) ---------- */
+/* Nesse modo o player de dentro do iframe é quem controla o vídeo: escondemos os nossos controles
+   e deixamos só a barrinha "Fonte 1 de 3", pra poder trocar de link manualmente. */
+.frame{position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;border:0;background:#000;z-index:6;display:none}
+#app.is-frame .frame{display:block}
+#app.is-frame .controls,#app.is-frame .mid,#app.is-frame .tap,#app.is-frame .top,#app.is-frame .gtop,#app.is-frame .gbot,
+#app.is-frame .fx,#app.is-frame .nap,#app.is-frame .drawer,#app.is-frame .menu,#app.is-frame .pipnote{display:none!important}
+#app.is-frame{cursor:default}
+.srcbar{position:absolute;top:max(8px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:45;display:none;align-items:center;padding:3px;border-radius:999px;background:rgba(18,18,22,.78);border:1px solid var(--line);font-size:.92em;white-space:nowrap;opacity:.82;transition:opacity .2s}
+#app.is-frame .srcbar{display:flex}
+.srcbar:hover,.srcbar:focus-within{opacity:1}
+.srcbar #sbTxt{padding:0 6px;font-variant-numeric:tabular-nums}
+.srcbar .sb{width:32px;height:32px;border-radius:50%;font-size:1.5em;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.srcbar .sb:hover{background:rgba(255,255,255,.16)}
+.srcbar .sb:active{transform:scale(.92)}
+#app.is-frame .loader{z-index:60}
+
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
