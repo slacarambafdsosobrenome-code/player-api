@@ -286,7 +286,7 @@
   // ---------- erros por etapa ----------
   var STAGES={
     biblioteca:['Componente de vídeo','Não foi possível carregar o componente de vídeo. Verifique a conexão e tente de novo.'],
-    fonte:['Fonte','O link do vídeo expirou ou não pôde ser carregado.'],
+    fonte:['Fonte','O link do vídeo não abriu: está fora do ar, bloqueado, expirou ou o formato não é suportado.'],
     carregamento:['Carregamento','A conexão com o vídeo falhou ou ficou lenta demais.'],
     decodificacao:['Decodificação','Este aparelho ou navegador não conseguiu decodificar o vídeo.'],
     reproducao:['Reprodução','O navegador bloqueou a reprodução do vídeo.']
@@ -400,7 +400,9 @@
       secure:location.protocol==='https:',
       type:C.type||'',
       nativeHls:!!(isApple && CAP.nativeHls),
-      iframeLast:!!C.iframeLast
+      iframeLast:!!C.iframeLast,
+      // relay do servidor (só existe nas rotas da planilha): faz tocar vídeo de servidor que só fala http://
+      proxyUrl:(C.proxy && C.proxy.base) ? function(i){ return C.proxy.base+'&n='+i; } : null
     });
     ai=0; tried=[];
   }
@@ -430,7 +432,9 @@
     S.phase='boot'; S.buffering=true; S.started=false; render();
     clearTimeout(loadT);
     // a última fonte tem mais paciência; as outras passam adiante mais rápido
-    loadT=setTimeout(function(){ failSource('carregamento','timeout'); }, nextAttempt()<0 ? Math.max(45000,C.srcTimeout||0) : (C.srcTimeout||25000));
+    // última fonte: mais paciência · "chute" de https (link era http://): se o servidor não tem https, desiste logo · demais: SRC_TIMEOUT
+    loadT=setTimeout(function(){ failSource('carregamento','timeout'); },
+      nextAttempt()<0 ? Math.max(45000,C.srcTimeout||0) : (a.probe ? Math.min(8000,C.srcTimeout||25000) : (C.srcTimeout||25000)));
     tStart=Date.now();
     if(a.mode==='frame'){ attachFrame(a); return; }
     var eng=pickEngine();
@@ -538,7 +542,8 @@
     if(hls || S.phase==='error') return;
     var c=video.error?video.error.code:0;
     if(c===1 || S.frame) return;
-    failSource(c===2?'carregamento':'decodificacao','E'+c);
+    // código 4 do navegador = "não consegui abrir esse endereço" (link caiu, bloqueado, http em página https, formato…)
+    failSource(c===2?'carregamento':(c===4?'fonte':'decodificacao'),'E'+c);
   });
   video.addEventListener('ratechange',function(){ updEnd(); emit('ratechange',{rate:video.playbackRate}); });
 
@@ -1329,7 +1334,7 @@
     savePos();
     teardown();
     S.panel=''; S.menu=false; S.nextClosed=true; S.started=false; S.waitGesture=false; S.buffering=true;
-    C.links=links; C.url=src;
+    C.links=links; C.url=src; C.proxy=null;
     C.type=(a.type==='hls')?'hls':((a.type==='mp4'||a.type==='file')?'mp4':'');
     C.isHls=(a.type==='hls') || (a.type!=='mp4' && /\.m3u8(\?|#|$)/i.test(src));
     C.id=a.id?String(a.id).slice(0,120):idFromUrl(src);

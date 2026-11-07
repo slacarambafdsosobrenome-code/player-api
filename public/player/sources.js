@@ -113,6 +113,7 @@
     var h = c.host || '';
     if (c.kind === 'drive') return a.mode === 'frame' ? 'Google Drive (player do Drive)' : 'Google Drive (direto)';
     if (c.kind === 'okru') return 'OK.ru';
+    if (a.kind === 'proxy') return 'MP4 · ' + h + ' (pelo servidor)';
     if (a.mode === 'hls') return 'HLS · ' + h;
     if (c.kind === 'file') return 'MP4 · ' + h;
     return 'Link · ' + h;
@@ -125,6 +126,8 @@
    *   type       'hls' | 'mp4' força o tipo dos links comuns (não mexe em Drive / OK.ru)
    *   nativeHls  Safari/iPhone: link sem extensão vira uma tentativa só (o nativo já lê HLS)
    *   iframeLast todos os iframes (Drive/OK.ru) ficam por último
+   *   proxyUrl   function(índiceDoLink) → URL do relay do servidor (ou ''). Quando existe, cada link de arquivo ganha uma
+   *              segunda tentativa "pelo servidor": é o que faz tocar vídeo de servidor que só fala http:// (ou sem https).
    * Padrão: ordem dos links; só o "player do Drive" (plano B do Drive) vai pro final, porque o iframe não avisa
    * quando falha e travaria a troca automática de link.
    */
@@ -163,11 +166,16 @@
       if (opts.type === 'hls') kind = 'hls';
       else if (opts.type === 'mp4' || opts.type === 'file') kind = 'file';
       var u = secureUrl(c.url);
-      if (kind === 'hls') add({ mode: 'hls', kind: 'hls', url: u }, c, idx);
-      else if (kind === 'file') add({ mode: 'native', kind: 'file', url: u }, c, idx);
-      else {
-        add({ mode: 'native', kind: 'auto', url: u }, c, idx);
-        if (!opts.nativeHls) add({ mode: 'hls', kind: 'auto', url: u }, c, idx);
+      var guessed = u !== c.url; // era http:// e viramos https:// "no chute": se o servidor não tiver https falha rápido
+      var viaServer = opts.proxyUrl && !(kind === 'hls') ? opts.proxyUrl(idx) : '';
+      if (kind === 'hls') add({ mode: 'hls', kind: 'hls', url: u, probe: guessed }, c, idx);
+      else if (kind === 'file') {
+        add({ mode: 'native', kind: 'file', url: u, probe: guessed }, c, idx);
+        if (viaServer) add({ mode: 'native', kind: 'proxy', url: viaServer }, c, idx);
+      } else {
+        add({ mode: 'native', kind: 'auto', url: u, probe: guessed }, c, idx);
+        if (viaServer && /^http:\/\//i.test(c.url)) add({ mode: 'native', kind: 'proxy', url: viaServer }, c, idx);
+        if (!opts.nativeHls) add({ mode: 'hls', kind: 'auto', url: u, probe: guessed }, c, idx);
       }
     });
 
