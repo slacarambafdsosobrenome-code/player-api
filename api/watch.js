@@ -1,31 +1,41 @@
 'use strict';
-// GET /filme/{linha}          → toca os links da coluna P da linha {linha} da planilha de filmes
-// GET /serie/{aba}/{linha}    → toca os links da coluna E da linha {linha} da aba {aba} (1 a 17) da planilha de séries
-// POST …                      → telemetria técnica anônima (igual ao /embed)
+// GET /P1555        → toca os links da coluna P da linha 1555 da planilha de filmes   (também: /1555 e /filme/1555)
+// GET /5/12         → toca os links da coluna E da linha 12 da aba 5 (1 a 17) da planilha de séries   (também: /serie/5/12)
+// POST …            → telemetria técnica anônima (igual ao /embed)
 //
-// Na Vercel essas rotas chegam aqui por "rewrites" (vercel.json); no servidor local, por scripts/dev.js.
+// Na Vercel qualquer endereço que não seja um arquivo chega aqui por um "rewrite" (vercel.json); a rota é lida do
+// caminho. No servidor local, por scripts/dev.js.
 // Cada célula pode ter vários links separados por vírgula: o player tenta um por um.
 const getConfig = require('../lib/config');
 const { parseEmbed } = require('../lib/params');
 const { renderPlayer, renderError } = require('../lib/render');
 const { assetVersion } = require('../lib/assets');
-const { getItem, SheetError } = require('../lib/sheets');
+const { getItem, parseLine, SheetError } = require('../lib/sheets');
 const { queryOf, selfOrigin, send, telemetry, baseHeaders } = require('../lib/http');
 
 const first = (v) => (Array.isArray(v) ? v[0] : v);
 
-// Descobre { type, aba, linha } pelos parâmetros do rewrite OU, se a Vercel entregar a URL original, pelo caminho.
+// Descobre { type, aba, linha } pelo caminho da URL:  /P1555 · /1555 · /5/12 · /filme/1555 · /serie/5/12
+// Na Vercel o caminho pode chegar em req.url (original) ou no parâmetro "path" do rewrite (às vezes como lista):
+// testa as duas formas e fica com a primeira que for uma rota válida.
+function parsePath(path) {
+  let m = /^\/(?:serie\/)?(\d{1,3})\/([Pp]?\d{1,7})\/?$/.exec(path);
+  if (m) return { type: 'serie', aba: m[1], linha: m[2] };
+  m = /^\/(?:filme\/)?([Pp]?\d{1,7})\/?$/.exec(path);
+  if (m) return { type: 'filme', aba: '', linha: m[1] };
+  return null;
+}
 function routeOf(req, query) {
-  let type = first(query.type);
-  let aba = first(query.aba);
-  let linha = first(query.linha);
-  if (!type || !linha) {
-    const path = new URL(req.url || '/', 'http://localhost').pathname;
-    let m = /\/serie\/([^/]+)\/([^/]+)\/?$/.exec(path);
-    if (m) { type = 'serie'; aba = m[1]; linha = m[2]; }
-    else if ((m = /\/filme\/([^/]+)\/?$/.exec(path))) { type = 'filme'; linha = m[1]; }
+  const candidates = [new URL(req.url || '/', 'http://localhost').pathname];
+  const p = query.path;
+  if (p != null && p !== '') candidates.push('/' + [].concat(p).join('/').replace(/^\/+/, ''));
+  for (const c of candidates) {
+    const r = parsePath(c);
+    if (r) return r;
   }
-  return { type: type === 'serie' ? 'serie' : 'filme', aba, linha };
+  // chamada direta de /api/watch?type=…&aba=…&linha=… (testes)
+  if (first(query.linha)) return { type: first(query.type) === 'serie' ? 'serie' : 'filme', aba: first(query.aba), linha: first(query.linha) };
+  return null;
 }
 
 module.exports = async function handler(req, res) {
@@ -42,6 +52,10 @@ module.exports = async function handler(req, res) {
   const route = routeOf(req, query);
   const fail = (status, message, code, retry) =>
     send(res, status, 'text/html; charset=utf-8', renderError(message, code, cfg, { retry }), { 'Cache-Control': 'no-store' });
+
+  if (!route) {
+    return fail(404, 'Endereço inválido. Use /P1555 (filmes: P + número da linha) ou /5/12 (séries: número da aba / número da linha).', 'rota', false);
+  }
 
   let item;
   try {
@@ -68,6 +82,12 @@ module.exports = async function handler(req, res) {
 
   const parsed = parseEmbed(q, cfg, selfOrigin(req));
   if (!parsed.ok) return fail(parsed.status, parsed.message, parsed.code, false);
+
+  // relay pra links http:// (o player escolhe o link nº N: /api/stream?…&n=N). Só existe pra links que vieram da planilha.
+  const lineNo = String(parseLine(route.linha));
+  parsed.player.proxy = cfg.proxyHttp
+    ? { base: route.type === 'serie' ? `/api/stream?t=serie&a=${parseInt(route.aba, 10)}&l=${lineNo}` : `/api/stream?t=filme&l=${lineNo}` }
+    : null;
 
   return send(res, 200, 'text/html; charset=utf-8', renderPlayer(parsed.player, cfg, assetVersion()), {
     // os links só mudam quando você edita a planilha: o CDN guarda 1 min e serve a cópia antiga enquanto atualiza
