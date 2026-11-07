@@ -9,6 +9,9 @@
     "api/watch.js": {
       "includeFiles": "public/player/**",
       "maxDuration": 20
+    },
+    "api/stream.js": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -17,12 +20,8 @@
       "destination": "/api/embed"
     },
     {
-      "source": "/filme/:linha",
-      "destination": "/api/watch?type=filme&linha=:linha"
-    },
-    {
-      "source": "/serie/:aba/:linha",
-      "destination": "/api/watch?type=serie&aba=:aba&linha=:linha"
+      "source": "/:path*",
+      "destination": "/api/watch?path=:path*"
     }
   ],
   "headers": [
