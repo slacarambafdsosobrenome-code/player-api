@@ -110,7 +110,7 @@ test('erros claros: cabeçalho, linha inexistente, célula vazia, link inválido
   r = await call('/filme/5');
   assert.equal(r.statusCode, 404); assert.match(r.body, /nenhum link/);
   r = await call('/filme/abc');
-  assert.equal(r.statusCode, 400);
+  assert.equal(r.statusCode, 404); assert.match(r.body, /Endereço inválido/);
   for (const x of ['/filme/1', '/filme/4']) assert.ok(!(await call(x)).body.includes('<video'));
 });
 
@@ -121,7 +121,7 @@ test('/serie/3/2 → aba 3 (gid g3), coluna E, título "Série · T E" e próxim
   assert.deepEqual(c.links, ['http://shd12.oneplayer.site/1x1.mp4']);
   assert.equal(c.title, 'A Caverna Encantada · T1 E1');
   assert.equal(c.id, 's3-2');
-  assert.deepEqual(c.next, { url: 'https://player.test/serie/3/3', title: 'A Caverna Encantada · T1 E2', poster: '' });
+  assert.deepEqual(c.next, { url: 'https://player.test/3/3', title: 'A Caverna Encantada · T1 E2', poster: '' });
   assert.ok(hits.some((h) => h.startsWith('/SERIES/export?format=csv&gid=g3')));
 });
 
@@ -193,4 +193,45 @@ test('CSV: aspas, vírgulas, quebras de linha e linhas em branco preservadas', (
   assert.deepEqual(rows, [['a', 'b'], ['x,1', 'li\nnha "2"'], [''], ['', '', ''], ['fim']]);
   assert.equal(sheets.colIndex('P'), 15); assert.equal(sheets.colIndex('E'), 4); assert.equal(sheets.colIndex('AA'), 26);
   assert.equal(sheets.parseLine('P2555'), 2555); assert.equal(sheets.parseLine('0'), 0); assert.equal(sheets.parseLine('2x'), 0);
+});
+
+test('rotas curtas: /P2 e /2 (filme), /3/2 (série) — sem prefixo /filme nem /serie', async () => {
+  for (const u of ['/P2', '/p2', '/2']) {
+    const r = await call(u);
+    assert.equal(r.statusCode, 200, u);
+    assert.equal(configOf(r.body).id, 'f2', u);
+  }
+  const s3 = await call('/3/2');
+  assert.equal(s3.statusCode, 200);
+  assert.equal(configOf(s3.body).id, 's3-2');
+  assert.equal((await call('/3/2/')).statusCode, 200); // barra no final
+});
+
+test('endereços que não são rota → 404 sem mexer na planilha', async () => {
+  for (const u of ['/', '/abc', '/favicon.ico', '/P', '/1/2/3', '/P2x', '/-5']) {
+    hits.length = 0;
+    const r = await call(u);
+    assert.equal(r.statusCode, 404, u);
+    assert.equal(hits.length, 0, 'não deve baixar planilha: ' + u);
+  }
+});
+
+test('Vercel: rota vem no parâmetro "path" do rewrite (texto, lista ou URL já reescrita)', async () => {
+  let r = await call('/api/watch?path=P2', { query: { path: 'P2' } });
+  assert.equal(configOf(r.body).id, 'f2');
+  r = await call('/api/watch?path=3/2', { query: { path: '3/2' } });
+  assert.equal(configOf(r.body).id, 's3-2');
+  r = await call('/api/watch', { query: { path: ['3', '2'] } });
+  assert.equal(configOf(r.body).id, 's3-2');
+  r = await call('/P2', { query: { path: 'P2' } });
+  assert.equal(configOf(r.body).id, 'f2');
+});
+
+test('config do player leva o endereço do relay (nº do link = posição na lista)', async () => {
+  let c = configOf((await call('/P2')).body);
+  assert.deepEqual(c.proxy, { base: '/api/stream?t=filme&l=2' });
+  c = configOf((await call('/3/2')).body);
+  assert.deepEqual(c.proxy, { base: '/api/stream?t=serie&a=3&l=2' });
+  process.env.PROXY_HTTP = '0';
+  try { assert.equal(configOf((await call('/P2')).body).proxy, null); } finally { delete process.env.PROXY_HTTP; }
 });

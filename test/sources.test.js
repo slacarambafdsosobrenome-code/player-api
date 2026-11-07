@@ -85,3 +85,28 @@ test('fila: type=hls / type=mp4 forçam o tipo dos links comuns, mas não mexem 
   assert.equal(S.buildAttempts(['https://a.com/x.m3u8'], { type: 'mp4' })[0].mode, 'native');
   assert.equal(S.buildAttempts(['https://ok.ru/video/1234567890123'], { type: 'hls' })[0].mode, 'frame');
 });
+
+test('fila com relay: link http ganha tentativa direta curta (probe) + "pelo servidor"', () => {
+  const links = S.parseLinks('http://fhd1.oneplayer.site/x/tt1.mp4, https://b.test/2.mp4, http://w.test/stream, https://c.test/live.m3u8');
+  const at = S.buildAttempts(links, { secure: true, proxyUrl: (i) => '/api/stream?t=filme&l=7&n=' + i });
+  const d = at.map((a) => `${a.kind}${a.probe ? '*' : ''}:${a.url.startsWith('/api') ? a.url.split('n=')[1] : 'direto'}`);
+  assert.deepEqual(d, [
+    'file*:direto', 'proxy:0',          // http mp4: https no chute (rápido) e depois o relay
+    'file:direto', 'proxy:1',           // https mp4: direto e relay (cobre servidor que só atende em http)
+    'auto*:direto', 'proxy:2', 'auto*:direto', // sem extensão em http: arquivo, relay, HLS
+    'hls:direto',                       // HLS: sem relay (a lista aponta pra outros arquivos)
+  ]);
+  assert.match(at[1].label, /\(pelo servidor\)/);
+  assert.equal(at[1].mode, 'native');
+  // sem proxyUrl (ex.: /embed?src=…) nada muda
+  assert.ok(S.buildAttempts(links, { secure: true }).every((a) => a.kind !== 'proxy'));
+  // Drive e OK.ru nunca usam o relay
+  const dr = S.buildAttempts(S.parseLinks('https://ok.ru/video/1234567890123, https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view'), { secure: true, proxyUrl: () => '/x' });
+  assert.ok(dr.every((a) => a.kind !== 'proxy'));
+});
+
+test('fila: em página http (dev local) não há "chute" de https nem probe', () => {
+  const at = S.buildAttempts(['http://a.test/1.mp4'], { secure: false, proxyUrl: () => '/p' });
+  assert.equal(at[0].url, 'http://a.test/1.mp4');
+  assert.ok(!at[0].probe);
+});
