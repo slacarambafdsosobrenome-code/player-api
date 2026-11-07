@@ -90,7 +90,6 @@
     var iframe = document.createElement('iframe');
     iframe.src = base + '/embed?' + toQuery(params);
     iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media; screen-wake-lock');
-    iframe.setAttribute('allowfullscreen', '');
     iframe.setAttribute('title', options.title || 'Player de vídeo');
     iframe.style.cssText = 'border:0;width:100%;height:100%;display:block;background:#000';
     this.iframe = iframe;
